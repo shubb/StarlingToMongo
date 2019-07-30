@@ -15,7 +15,6 @@ const client = new Starling({
 // Async function to 
 async function StarlingToMongo() {
 
-    var collection = null
     try {
 
         // Mongo connection parameters
@@ -31,40 +30,54 @@ async function StarlingToMongo() {
         // Connect to the database
         var dbConnection = await asyncMongoClientConnect(MONGO_URL)
         var db = dbConnection.db(DB_NAME)
-        //db.dropCollection(COL_TRANSACTIONS)
+        db.dropCollection(COL_TRANSACTIONS)
         db.createCollection(COL_TRANSACTIONS)
-        collection = db.collection('COL_TRANSACTIONS')
+        var collection = db.collection(COL_TRANSACTIONS)
+
+        const asyncInsertMany = util.promisify(collection.insertMany.bind(collection))
+        const asyncInsertOne = util.promisify(collection.insertOne.bind(collection))
+        
+        var accountDetails = await client.getAccount()
+        
+        var accountInfo = {
+            "accountNumber": accountDetails.data.accountNumber,
+            "createdAt":     new Date(accountDetails.data.createdAt)
+        }
+
+        // Sequentially download transaction histories
+        // Note this is synchronous to be kind to their api
+        var today = new Date(); //today
+        
+        // For months between account creation date and today
+        for(const period of new RangeInMonths(accountInfo.createdAt, today)) {
+            
+            //Get transactions for this period
+            var response = await client.getTransactions(
+                    undefined, 
+                    period.start.format('YYYY-MM-DD'),
+                    period.end.format('YYYY-MM-DD'),
+                );
+            if(response.err) throw new Error(response.err);
+            // Retrieve transactions from the response
+            var transactions = response.data._embedded.transactions;
+
+            // For each transaction
+            await Promise.all(transactions.map( async (transactionSummary) => {
+                // Get all details for that transaction
+                var transactionDetails = await client.getTransaction(
+                        undefined,
+                        transactionSummary.id,
+                        transactionSummary.source
+                    )
+                if(transactionDetails.err) throw new Error(transactionDetails.err);
+
+                //Write transactions to the database
+                var mongoWriteReport = await asyncInsertOne(transactionDetails.data);
+                if(mongoWriteReport.err) throw new Error(mongoWriteReport.err);                
+            }));            
+        }
     }
     catch (err) { throw new Error(err)}
-    const asyncInsertMany = util.promisify(collection.insertMany.bind(collection))
-    
-    var accountDetails = await client.getAccount()
-    
-    var accountInfo = {
-        "accountNumber": accountDetails.data.accountNumber,
-        "createdAt":     new Date(accountDetails.data.createdAt)
-    }
-
-    // Sequentially download transaction histories
-    // Note this is synchronous to be kind to their api
-    var today = new Date() //today
-    // For months between account creation date and today
-    for(const period of new RangeInMonths(accountInfo.createdAt, today)) {
-        //Get transactions for this period
-        var response = await client.getTransactions(
-                undefined, 
-                period.start.format('YYYY-MM-DD'),
-                period.end.format('YYYY-MM-DD'),
-            )
-        if(response.err) throw new Error(response.err)
-        var transactions = response.data._embedded.transactions
-        try {
-        var returned = await asyncInsertMany(transactions)
-        if(returned.err) throw new Error(returned.err)
-        }
-        catch (err) { throw new Error(err)}
-    }
-
 
     //console.log(JSON.stringify(accountInformation, null, 2))
 }

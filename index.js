@@ -31,11 +31,12 @@ async function StarlingToMongo() {
         // Connect to the database
         var dbConnection = await asyncMongoClientConnect(MONGO_URL)
         var db = dbConnection.db(DB_NAME)
-        db.dropCollection(COL_TRANSACTIONS)
+        //db.dropCollection(COL_TRANSACTIONS)
         db.createCollection(COL_TRANSACTIONS)
         collection = db.collection('COL_TRANSACTIONS')
     }
     catch (err) { throw new Error(err)}
+    const asyncInsertMany = util.promisify(collection.insertMany.bind(collection))
     
     var accountDetails = await client.getAccount()
     
@@ -47,9 +48,23 @@ async function StarlingToMongo() {
     // Sequentially download transaction histories
     // Note this is synchronous to be kind to their api
     var today = new Date() //today
+    // For months between account creation date and today
     for(const period of new RangeInMonths(accountInfo.createdAt, today)) {
-        console.log(period.end.calendar())
+        //Get transactions for this period
+        var response = await client.getTransactions(
+                undefined, 
+                period.start.format('YYYY-MM-DD'),
+                period.end.format('YYYY-MM-DD'),
+            )
+        if(response.err) throw new Error(response.err)
+        var transactions = response.data._embedded.transactions
+        try {
+        var returned = await asyncInsertMany(transactions)
+        if(returned.err) throw new Error(returned.err)
+        }
+        catch (err) { throw new Error(err)}
     }
+
 
     //console.log(JSON.stringify(accountInformation, null, 2))
 }

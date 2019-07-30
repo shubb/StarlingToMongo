@@ -1,6 +1,8 @@
-const config = require('./config.json')
 const Starling = require('starling-developer-sdk');
+const MongoClient = require('mongodb').MongoClient;
+const util = require('util');
 
+const config = require('./config.json')
 const RangeInMonths = require('./RangeInMonths')
 
 // Connect to starling using personal access token
@@ -12,6 +14,28 @@ const client = new Starling({
 
 // Async function to 
 async function StarlingToMongo() {
+
+    var collection = null
+    try {
+
+        // Mongo connection parameters
+        var MONGO_PUBLISH_IP='127.0.0.1'
+        var MONGO_PUBLISH_PORT='27017'
+        var DB_NAME='starling'
+        var MONGO_URL=`mongodb://${MONGO_PUBLISH_IP}:${MONGO_PUBLISH_PORT}`
+        var COL_TRANSACTIONS = 'transctions'
+        
+        // Promisify callback function so we can use await
+        const asyncMongoClientConnect = util.promisify(MongoClient.connect)
+        
+        // Connect to the database
+        var dbConnection = await asyncMongoClientConnect(MONGO_URL)
+        var db = dbConnection.db(DB_NAME)
+        db.dropCollection(COL_TRANSACTIONS)
+        db.createCollection(COL_TRANSACTIONS)
+        collection = db.collection('COL_TRANSACTIONS')
+    }
+    catch (err) { throw new Error(err)}
     
     var accountDetails = await client.getAccount()
     

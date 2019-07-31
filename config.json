@@ -1,3 +1,12 @@
 {
-    "personal_token": "YOUR PERSONAL TOKEN HERE"
+    "starling": {
+        "personal_token": "<Your auth token here>"
+    },
+
+    "mongo" : {
+        "server_ip": "<IP Address of mongo host>",
+        "server_port": "<Port number of the mongo database>",
+        "database_name": "<Destination database name within mongo>",
+        "transaction_collection": "<Destination collection within that database>"
+    }
 }

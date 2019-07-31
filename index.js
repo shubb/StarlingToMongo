@@ -1,16 +1,16 @@
 /* eslint-disable max-len */
-const Starling = require('starling-developer-sdk');
 const MongoClient = require('mongodb').MongoClient;
-const util = require('util');
+const Starling = require('starling-developer-sdk');
 const mapLimit = require('async/mapLimit');
 const moment = require('moment');
+const util = require('util');
 
-const config = require('./config.json');
 const RangeInMonths = require('./RangeInMonths');
+const config = require('./config.json');
 
 /**
  * Retrieves detailed transactions from Starling and loads them into MongoDB,
- * for the account assosiated with the personalAuth specified in config.json,
+ * for the account associated with the personalAuth specified in config.json,
  * and into the mongo database as specified in config.json
  */
 async function starlingToMongo() {
@@ -23,8 +23,11 @@ async function starlingToMongo() {
     const dbConnection = await asyncMongoClientConnect(mongoUrl);
     const db = dbConnection.db(config.mongo.database_name);
 
-    // Drop and recreate the destination collection
-    db.dropCollection(config.mongo.transaction_collection);
+    // Drop destination collection
+    try { // (or fail silently if it doesn't exist yet)
+      db.dropCollection(config.mongo.transaction_collection);
+    } catch (err) {}
+    // And recreate the destination collection
     db.createCollection(config.mongo.transaction_collection);
 
     // Get a reference to the destination connection
@@ -59,7 +62,7 @@ async function starlingToMongo() {
       try {
         // Log progress
         const percentComplete = Math.ceil((monthCounter / totalMonths) * 100);
-        console.log(`Loading month ${monthCounter}, ${percentComplete}`);
+        console.log(`Progress: ${percentComplete}% - Loading month ${monthCounter}`);
         monthCounter += 1;
 
         // Fetch transactions for the period from Starling
@@ -99,8 +102,15 @@ async function starlingToMongo() {
         if (mongoWriteReport.err) throw new Error(`Writing transaction to mongo failed with error: ${mongoWriteReport.err}`);
       });
     }
+
+    // Finally close DB connection
+    console.log('Starling -> Mongo load complete');
+    dbConnection.close();
   } catch (err) {
     throw new Error(`Unhandled exception in StarlingToMongo: ${err}`);
   }
-}
-starlingToMongo();
+};
+
+// Run starlingToMongo main function then exit
+Promise.all([starlingToMongo()])
+    .then(process.exit);

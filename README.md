@@ -39,6 +39,7 @@ A good tool for looking at the data once it is loaded is [Studio 3T](https://stu
 ## Configuration
 
 Destination database and Personal Auth Token must be set in the destination database before running. 
+The configuration file config.json must be edited, with placeholder fields completed as described here.
 
 The configuration file has the following structure:
 ```JSON
@@ -73,6 +74,21 @@ A configuration if using Docker as suggested would be:
     }
 }
 ```
+
+## Install and run
+
+Steps to install and run StarlingToMongo
+1. Install nodejs and npm
+2. Open a terminal and navigate to the project directory
+1. Install javascript dependencies:
+```bash
+npm install
+```
+2. Run StarlingToMongo
+```bash
+node index.js
+```
+
 ## Screenshots:
 
 A transaction loaded into mongo:

@@ -1,83 +1,104 @@
+/* eslint-disable max-len */
 const Starling = require('starling-developer-sdk');
 const MongoClient = require('mongodb').MongoClient;
 const util = require('util');
 const mapLimit = require('async/mapLimit');
+const moment = require('moment');
 
 const config = require('./config.json');
 const RangeInMonths = require('./RangeInMonths');
 
-// Do everything in an async function so we can use await
-async function StarlingToMongo() {
-    try {
-        // Promisify callback function so we can use await
-        const asyncMongoClientConnect = util.promisify(MongoClient.connect);
+/**
+ * Retrieves detailed transactions from Starling and loads them into MongoDB,
+ * for the account assosiated with the personalAuth specified in config.json,
+ * and into the mongo database as specified in config.json
+ */
+async function starlingToMongo() {
+  try {
+    // Promisify callback function so we can use await
+    const asyncMongoClientConnect = util.promisify(MongoClient.connect);
 
-        // Connect to the database
-        var mongo_url=`mongodb://${config.mongo.server_ip}:${config.mongo.server_port}`;
-        var dbConnection = await asyncMongoClientConnect(mongo_url);
-        var db = dbConnection.db(config.mongo.database_name);
+    // Connect to the database
+    const mongoUrl=`mongodb://${config.mongo.server_ip}:${config.mongo.server_port}`;
+    const dbConnection = await asyncMongoClientConnect(mongoUrl);
+    const db = dbConnection.db(config.mongo.database_name);
 
-        // Drop and recreate the destination collection
-        db.dropCollection(config.mongo.transaction_collection);
-        db.createCollection(config.mongo.transaction_collection);
+    // Drop and recreate the destination collection
+    db.dropCollection(config.mongo.transaction_collection);
+    db.createCollection(config.mongo.transaction_collection);
 
-        // Get a reference to the destination connection
-        var transaction_collection = db.collection(config.mongo.transaction_collection);
-        // And make an async version of its insert method
-        const asyncInsertOne = util.promisify(transaction_collection.insertOne.bind(transaction_collection));
+    // Get a reference to the destination connection
+    const transactionCollection = db.collection(config.mongo.transaction_collection);
+    // And make an async version of its insert method
+    const asyncInsertOne = util.promisify(transactionCollection.insertOne.bind(transactionCollection));
 
-        // Connect to starling using personal access token
-        const client = new Starling({
-            accessToken: config.starling.personal_token
-        });
+    // Connect to starling using personal access token
+    const client = new Starling({
+      accessToken: config.starling.personal_token,
+    });
 
-        //Retrieve basic account information
-        var accountDetails = await client.getAccount();
-        if(accountDetails.err) throw new Error(`Get account details failed with error: ${accountDetails.err}`);
-        var accountInfo = {
-            "accountNumber": accountDetails.data.accountNumber,
-            "createdAt":     new Date(accountDetails.data.createdAt)
-        };
+    // Retrieve basic account information
+    const accountDetails = await client.getAccount();
+    if (accountDetails.err) throw new Error(`Get account details failed with error: ${accountDetails.err}`);
+    const accountInfo = {
+      'accountNumber': accountDetails.data.accountNumber,
+      'createdAt': new Date(accountDetails.data.createdAt),
+    };
 
-        // Sequentially download transaction histories
-        // Note this is synchronous to be kind to their api
-        var today = new Date(); //today
+    // Sequentially download transaction histories
+    // Note this is synchronous to be kind to their api
+    const today = new Date();
 
-        // For months between account creation date and today
-        for(const period of new RangeInMonths(accountInfo.createdAt, today)) {
+    const totalMonths = Math.ceil(moment(today).diff(moment(accountInfo.createdAt), 'months', true));
+    let monthCounter = 0;
 
-            //Get transactions for this period
-            try{
-                var start = period.start.format('YYYY-MM-DD');
-                var end = period.end.format('YYYY-MM-DD');
-                var response = await client.getTransactions(
-                        undefined,
-                        start,
-                        end
-                    );
-                if(response.err) throw new Error(`Getting transaction summaries for period ${start} - ${end} failed with error: ${response.err}`);
-            } catch (err) { throw new Error(`Getting transaction summaries for period ${start} - ${end} failed with error: ${err}`); }
-            // From the response, select the transactions list
-            var transactions = response.data._embedded.transactions;
+    // For months between account creation date and today
+    for (const period of new RangeInMonths(accountInfo.createdAt, today)) {
+      // Get transactions for this period
+      let transactions = [];
+      try {
+        // Log progress
+        const percentComplete = Math.ceil((monthCounter / totalMonths) * 100);
+        monthCounter += 1;
+        console.log(`Loading month ${monthCounter}, ${percentComplete}`);
 
-            mapLimit(transactions, 5, async (transactionSummary) => {
-                // Get all details for that transaction
-                try{
-                    // TODO: This is failing on a different transaction each time, try rate limiting
-                    var transactionDetails = await client.getTransaction(
-                            undefined,
-                            transactionSummary.id,
-                            transactionSummary.source
-                        )
-                    if(transactionDetails.err) throw new Error(`Getting transaction detail for transaction ${transactionSummary.id} failed with error: ${transactionDetails.err}`);
-                } catch (err) { throw new Error(`Getting transaction detail for transaction ${transactionSummary.id} failed with error: ${err}`); }
+        const start = period.start.format('YYYY-MM-DD');
+        const end = period.end.format('YYYY-MM-DD');
+        const response = await client.getTransactions(
+            undefined,
+            start,
+            end
+        );
+        if (response.err) throw new Error(`Getting transaction summaries for period ${start} - ${end} failed with error: ${response.err}`);
 
-                //Write transactions to the database
-                var mongoWriteReport = await asyncInsertOne(transactionDetails.data);
-                if(transactionDetails.err) throw new Error(`Writing transaction to mongo failed with error: ${transactionDetails.err}`);
-            });
+        transactions = response.data._embedded.transactions;
+      } catch (err) {
+        throw new Error(`Getting transaction summaries for period ${start} - ${end} failed with error: ${err}`);
+      }
+
+      mapLimit(transactions, 5, async (transactionSummary) => {
+        // Get all details for that transaction
+        let transactionDetails = {};
+        try {
+          const response = await client.getTransaction(
+              undefined,
+              transactionSummary.id,
+              transactionSummary.source
+          );
+          if (response.err) throw new Error(`Getting transaction detail for transaction ${transactionSummary.id} failed with error: ${response.err}`);
+
+          transactionDetails = response.data;
+        } catch (err) {
+          throw new Error(`Getting transaction detail for transaction ${transactionSummary.id} failed with error: ${err}`);
         }
+
+        // Write transactions to the database
+        const mongoWriteReport = await asyncInsertOne(transactionDetails);
+        if (mongoWriteReport.err) throw new Error(`Writing transaction to mongo failed with error: ${mongoWriteReport.err}`);
+      });
     }
-    catch (err) { throw new Error(`Unhandled exception in StarlingToMongo: ${err}`); }
+  } catch (err) {
+    throw new Error(`Unhandled exception in StarlingToMongo: ${err}`);
+  }
 }
-StarlingToMongo()
+starlingToMongo();

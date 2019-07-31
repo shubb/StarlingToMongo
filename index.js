@@ -52,16 +52,17 @@ async function starlingToMongo() {
     const totalMonths = Math.ceil(moment(today).diff(moment(accountInfo.createdAt), 'months', true));
     let monthCounter = 0;
 
-    // For months between account creation date and today
+    // For each month between account creation date and today, fetch all transactions:
     for (const period of new RangeInMonths(accountInfo.createdAt, today)) {
       // Get transactions for this period
       let transactions = [];
       try {
         // Log progress
         const percentComplete = Math.ceil((monthCounter / totalMonths) * 100);
-        monthCounter += 1;
         console.log(`Loading month ${monthCounter}, ${percentComplete}`);
+        monthCounter += 1;
 
+        // Fetch transactions for the period from Starling
         const start = period.start.format('YYYY-MM-DD');
         const end = period.end.format('YYYY-MM-DD');
         const response = await client.getTransactions(
@@ -76,6 +77,7 @@ async function starlingToMongo() {
         throw new Error(`Getting transaction summaries for period ${start} - ${end} failed with error: ${err}`);
       }
 
+      // For each transaction this month, get transaction details
       mapLimit(transactions, 5, async (transactionSummary) => {
         // Get all details for that transaction
         let transactionDetails = {};
@@ -92,7 +94,7 @@ async function starlingToMongo() {
           throw new Error(`Getting transaction detail for transaction ${transactionSummary.id} failed with error: ${err}`);
         }
 
-        // Write transactions to the database
+        // Write a transaction record to the database
         const mongoWriteReport = await asyncInsertOne(transactionDetails);
         if (mongoWriteReport.err) throw new Error(`Writing transaction to mongo failed with error: ${mongoWriteReport.err}`);
       });

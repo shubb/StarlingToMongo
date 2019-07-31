@@ -76,4 +76,5 @@ A configuration if using Docker as suggested would be:
 ## Screenshots:
 
 A transaction loaded into mongo:
-![A transaction loaded into mongo](http://imgur.com/mIMkwvwl.png)
+
+![](http://imgur.com/mIMkwvwl.png)

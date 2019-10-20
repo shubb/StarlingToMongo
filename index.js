@@ -81,14 +81,14 @@ async function starlingToMongo() {
       }
 
       // For each transaction this month, get transaction details
-      mapLimit(transactions, 5, async (transactionSummary) => {
+      mapLimit(transactions, 1, async (transactionSummary) => {
         // Get all details for that transaction
         let transactionDetails = {};
         try {
           const response = await client.getTransaction(
-              undefined,
-              transactionSummary.id,
-              transactionSummary.source
+            undefined,
+            transactionSummary.id,
+            transactionSummary.source
           );
           if (response.err) throw new Error(`Getting transaction detail for transaction ${transactionSummary.id} failed with error: ${response.err}`);
 
@@ -97,11 +97,49 @@ async function starlingToMongo() {
           throw new Error(`Getting transaction detail for transaction ${transactionSummary.id} failed with error: ${err}`);
         }
 
+        try {
+          // If there is a merchant ID fetch complete details for the merchant
+          if (transactionDetails.merchantId) {
+            const response = await client.getMerchant(
+              undefined,
+              transactionDetails.merchantId
+            );
+            if (response.err) throw new Error(`Getting transaction detail for transaction ${transactionSummary.id} failed with error: ${response.err}`);
+
+            // Add the retrieved merchant details to the transaction\'s data
+            if(response.status === 200) {
+              transactionDetails.merchantDetails = response.data
+            }
+          }
+        } catch (err) {
+          console.error(`Getting details of merchant ${transactionDetails.merchantId} failed with error:  ${err}`);
+        }
+
+        try {
+          // If there is a merchantID and a merchantLocationID fetch complete details for the location
+          if (transactionDetails.merchantLocationId) {
+            const response = await client.getMerchantLocation(
+              undefined,
+              transactionDetails.merchantId,
+              transactionDetails.merchantLocationId
+            );
+            if (response.err) throw new Error(`Getting transaction detail for transaction ${transactionSummary.id} failed with error: ${response.err}`);
+
+            // Add the retrieved location details to the transaction\'s data
+            if(response.status === 200) {
+              transactionDetails.merchantLocationDetails = response.data
+            }
+          }
+        } catch (err) {
+          console.error(`Getting details of merchant ${transactionDetails.merchantLocationId} failed with error:  ${err}`);
+        }
+
         // Write a transaction record to the database
         const mongoWriteReport = await asyncInsertOne(transactionDetails);
         if (mongoWriteReport.err) throw new Error(`Writing transaction to mongo failed with error: ${mongoWriteReport.err}`);
       });
     }
+    
 
     // Finally close DB connection
     console.log('Starling -> Mongo load complete');
